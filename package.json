@@ -1,6 +1,6 @@
 {
 	"name": "npm-cooldown",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"description": "Supply-chain protection for npm: installs dependencies as they were N days ago.",
 	"keywords": [
 		"npm",
