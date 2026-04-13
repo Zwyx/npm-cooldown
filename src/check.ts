@@ -252,6 +252,32 @@ export async function resolvePackageAtDate(
 > {
 	const data = await fetchPackument(name);
 
+	// Exact prerelease constraint (e.g. "1.0.0-rc.15"): there is no stable
+	// alternative to substitute, so just check whether that specific version
+	// is old enough and pass or block accordingly.
+	if (rangeConstraint !== undefined) {
+		const exactPre = semver.parse(rangeConstraint) ?? undefined;
+		if (exactPre !== undefined && exactPre.prerelease.length > 0) {
+			const version = rangeConstraint;
+			const publishTime = new Date(data.time[version]);
+			const deps = {
+				...data.versions[version]?.dependencies,
+				...data.versions[version]?.optionalDependencies,
+			};
+			return {
+				name,
+				version,
+				latestVersion: version,
+				publishTime,
+				deps,
+				needsPin:
+					Date.now() - publishTime.getTime() < COOLDOWN_MS
+						? "unavailable"
+						: false,
+			};
+		}
+	}
+
 	const stable = ([v]: [string, string]) => {
 		const sv = semver.parse(v) ?? undefined;
 		return (
@@ -268,7 +294,18 @@ export async function resolvePackageAtDate(
 		.sort(([a], [b]) => compareSemver(b, a));
 
 	if (allStable.length === 0) {
-		throw new Error(`No version of ${name} available`);
+		// No stable release exists (e.g. the package only publishes prerelease versions).
+		// Treat it like a brand-new package: block unless the user has excepted it.
+		const latestVersion = data["dist-tags"].latest;
+		const latestTime = data.time[latestVersion];
+		return {
+			name,
+			version: latestVersion,
+			latestVersion,
+			publishTime: new Date(latestTime),
+			deps: {},
+			needsPin: "unavailable",
+		};
 	}
 
 	const [latestVersion, latestTime] = allStable[0];
@@ -335,6 +372,14 @@ export function compareSemver(a: string, b: string): number {
 }
 
 function minVersionFromRange(range: string): semver.SemVer | undefined {
+	// Multi-range forms that can span multiple majors — extracting only the lower
+	// bound (e.g. "6" from "^6.0.0 || ^7.0.0 || ^8.0.0") would give a wrong
+	// majorHint to resolvePackageAtDate and a wrong visitKey, causing us to ignore
+	// higher majors that legitimately satisfy the range. trackCompatGroup handles
+	// OR ranges by splitting on "||" before calling this function.
+	if (range.includes("||") || range.includes(" - ")) {
+		return undefined;
+	}
 	if (/^[~^]/.test(range)) {
 		return semver.coerce(range.slice(1)) ?? undefined;
 	}
@@ -356,14 +401,6 @@ function majorFromRange(range: string): number | undefined {
 /** Within major 0, the minor version is the breaking boundary (^0.3.0 ≠ ^0.4.0).
  *  Returns a string key that captures the true incompatibility boundary:
  *  "1", "2", … for major ≥ 1, and "0.3", "0.4", … for major 0. */
-function compatGroupFromRange(range: string): string | undefined {
-	const sv = minVersionFromRange(range);
-	if (sv === undefined) {
-		return undefined;
-	}
-	return sv.major > 0 ? String(sv.major) : `${sv.major}.${sv.minor}`;
-}
-
 function compatGroupFromVersion(version: string): string {
 	const sv = semver.parse(version);
 	if (!sv) {
@@ -488,16 +525,22 @@ export async function checkAndCollect(
 	};
 	// seenCompatGroups records every distinct compat group each dep was *required at*,
 	// so we know when a dep appears at conflicting ranges across the tree — even if only
-	// one of those ranges needed pinning. For major ≥ 1 the group is the major number;
-	// for major 0 it is "0.minor" because ^0.3.x and ^0.4.x are incompatible.
-	const seenCompatGroups = new Map<string, Set<string | undefined>>();
+	// one of those ranges needed pinning. OR ranges contribute one group per part so
+	// `^3.0.0 || ^4.0.0` adds both "3" and "4". For major ≥ 1 the group is the major
+	// number; for major 0 it is "0.minor" because ^0.3.x and ^0.4.x are incompatible.
+	const seenCompatGroups = new Map<string, Set<string>>();
 	const trackCompatGroup = (name: string, range: string) => {
 		let groups = seenCompatGroups.get(name);
 		if (groups === undefined) {
 			groups = new Set();
 			seenCompatGroups.set(name, groups);
 		}
-		groups.add(compatGroupFromRange(range));
+		for (const part of range.split("||").map((s) => s.trim())) {
+			const sv = minVersionFromRange(part);
+			if (sv !== undefined) {
+				groups.add(sv.major > 0 ? String(sv.major) : `${sv.major}.${sv.minor}`);
+			}
+		}
 	};
 	const snapshotDate = new Date(Date.now() - COOLDOWN_MS);
 	const exceptions = config.minimumReleaseAgeExcludes ?? [];
@@ -674,11 +717,11 @@ export async function checkAndCollect(
 /** Build the `overrides` object to write into package.json.
  *
  *  A flat override (`"foo": "1.4.0"`) is used when `foo` is required at a single
- *  major version across the whole tree.  When `foo` appears at multiple
- *  incompatible majors (`conflictingDeps`), version-qualified flat overrides are
- *  used instead (`"foo@1.x": "1.4.0"`, `"foo@2.x": "2.0.0"`).  This restricts each
- *  pin to resolutions within its own major range, preventing npm's nested-override
- *  cascade from forcing a wrong-major version onto unrelated consumers. */
+ *  compat group across the whole tree.  When `foo` appears at multiple incompatible
+ *  groups (`conflictingDeps`), version-qualified flat overrides are used instead
+ *  (`"foo@1.x": "1.4.0"`, `"foo@2.x": "2.0.0"`).  This restricts each pin to
+ *  resolutions within its own major range, preventing npm's nested-override cascade
+ *  from forcing a wrong-major version onto unrelated consumers. */
 export function buildTransitiveOverrides(
 	pins: Map<string, PinEntry[]>,
 	conflictingDeps: Set<string>,
@@ -687,7 +730,7 @@ export function buildTransitiveOverrides(
 
 	for (const [name, entries] of pins) {
 		if (!conflictingDeps.has(name)) {
-			// Single major across the tree — plain flat override is safe.
+			// Single compat group across the tree — plain flat override is safe.
 			overrides[name] = entries[0].version;
 		} else {
 			// Multiple compat groups: use version-qualified flat overrides so each pin

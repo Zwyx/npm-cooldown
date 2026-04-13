@@ -731,6 +731,9 @@ describe("main() — dep range handling for downgraded root packages in no-lock 
 
 		// Return a too-new "latest" version for each package.
 		mocks.spawnSync.mockImplementation((_cmd: string, args: string[]) => {
+			if (args[0] === "--version") {
+				return { status: 0, stdout: "10.0.0\n", stderr: "" };
+			}
 			const spec = args[1]; // "name@range"
 			let pkgName: string;
 			if (spec.startsWith("@")) {
@@ -990,10 +993,11 @@ describe("main() — lockfile sneak-in retry", () => {
 		});
 
 		// npm view resolves "react" → 19.2.0 (used on both attempts)
-		mocks.spawnSync.mockReturnValue({
-			status: 0,
-			stdout: JSON.stringify("19.2.0") + "\n",
-			stderr: "",
+		mocks.spawnSync.mockImplementation((_cmd: string, args: string[]) => {
+			if (args[0] === "--version") {
+				return { status: 0, stdout: "10.0.0\n", stderr: "" };
+			}
+			return { status: 0, stdout: JSON.stringify("19.2.0") + "\n", stderr: "" };
 		});
 
 		// First lockfile: npm sneaked in dep@1.0.2 during resolution.

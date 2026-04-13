@@ -36,12 +36,12 @@ added 68 packages, and audited 69 packages in 681ms
 found 0 vulnerabilities
 ```
 
-After this, `package.json` contains `"eslint": "^10.1.0"` and `package-lock.json` only includes dependencies published at least 7 days ago.
+After this, `package.json` contains `"eslint": "^10.1.0"`, and `package-lock.json` only includes dependencies published at least 7 days ago – exactly as if `npm i eslint` was run on this date.
 
 ## Requirements
 
-- **Node.js ≥ `18`**
-- **npm ≥ `8.3.0`** (the `overrides` field used for transitive pinning was introduced in npm `8.3.0` – note: npm-cooldown uses this field only temporarily, and restores it to it's original state)
+- **Node.js ≥ 18** (for the built-in `fetch` global, introduced in Node 18)
+- **npm ≥ `8.3.0`** (for the `overrides` field used for transitive pinning, introduced in npm `8.3.0` – note: npm-cooldown uses this field only temporarily, and restores it to it's original state)
 
 ## Installation
 
@@ -98,9 +98,9 @@ When a `package-lock.json` is present, checks every locked package against the c
 
 ### `ncd eslint`
 
-1. Resolves the exact version that would be installed (using npm's own resolution, so all range formats and dist-tags work).
+1. Resolves the exact version that would be installed.
 2. If the latest version is too new, falls back to the most recent version that passes the cooldown – aborts if no such version exists.
-3. Walks the full transitive dependency tree, resolving each dep to the highest stable version that existed N days ago – if a transitive dep is brand new with no historical version, the install is aborted.
+3. Walks the full transitive dependency tree, resolving each dep to the highest stable version that existed N days ago.
 4. Writes the pinned versions to `package.json`'s `overrides` field, runs `npm install eslint@<version>`.
 5. Removes the `overrides` field from `package.json` – **effectively leaving `package.json` and `package-lock.json` in the state they would have been had `npm i eslint` been run N days ago**.
 
@@ -158,4 +158,4 @@ Supports [`minimumReleaseAge`](https://bun.com/docs/pm/cli/install#minimum-relea
 
 ### npm ≥ 11
 
-Supports [`min-release-age`](https://docs.npmjs.com/cli/v11/commands/npm-install#min-release-age) but doesn't not support any exclude option.
+Supports [`min-release-age`](https://docs.npmjs.com/cli/v11/commands/npm-install#min-release-age) and [`before`](https://docs.npmjs.com/cli/v11/commands/npm-install#before) but doesn't not support any exclude option.

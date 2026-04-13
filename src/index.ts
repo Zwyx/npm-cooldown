@@ -2,7 +2,7 @@
 
 // Run `npm run dev` to quickly run the code
 
-import { execSync } from "child_process";
+import { execSync, spawnSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import semver from "semver";
@@ -16,6 +16,7 @@ import {
 	COOLDOWN_MS,
 	parsePackageSpec,
 } from "./check.js";
+
 import {
 	DEP_FIELDS,
 	type MinimalPackageJson,
@@ -64,6 +65,25 @@ function printPins(pins: Map<string, PinEntry[]>): void {
 }
 
 export async function main(): Promise<void> {
+	const nodeMajor = parseInt(process.versions.node.split(".")[0], 10);
+	if (nodeMajor < 18) {
+		process.stderr.write(
+			`Error: npm-cooldown requires Node.js >= 18 (current: ${process.versions.node})\n`,
+		);
+		process.exit(1);
+	}
+
+	const npmVersionResult = spawnSync("npm", ["--version"], { encoding: "utf8" });
+	if (
+		npmVersionResult.status !== 0 ||
+		semver.lt(npmVersionResult.stdout.trim(), "8.3.0")
+	) {
+		process.stderr.write(
+			`Error: npm-cooldown requires npm >= 8.3.0 (current: ${npmVersionResult.stdout.trim() || "unknown"})\n`,
+		);
+		process.exit(1);
+	}
+
 	const args = process.argv.slice(2);
 	const flags = args.filter((a) => a.startsWith("-"));
 	const pkgSpecs = args.filter((a) => !a.startsWith("-"));
