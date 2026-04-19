@@ -22,7 +22,8 @@
 	],
 	"bin": {
 		"npm-cooldown": "dist/index.js",
-		"ncd": "dist/index.js"
+		"ncd": "dist/index.js",
+		"ncd-hero": "dist/hero.js"
 	},
 	"scripts": {
 		"dev": "bun src/index.ts",
