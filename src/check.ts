@@ -295,16 +295,21 @@ export async function resolvePackageAtDate(
 
 	if (allStable.length === 0) {
 		// No stable release exists (e.g. the package only publishes prerelease versions).
-		// Treat it like a brand-new package: block unless the user has excepted it.
+		// Check whether the latest version is old enough; only block if it isn't.
 		const latestVersion = data["dist-tags"].latest;
 		const latestTime = data.time[latestVersion];
+		const publishTime = new Date(latestTime);
 		return {
 			name,
 			version: latestVersion,
 			latestVersion,
-			publishTime: new Date(latestTime),
-			deps: {},
-			needsPin: "unavailable",
+			publishTime,
+			deps: {
+				...data.versions[latestVersion]?.dependencies,
+				...data.versions[latestVersion]?.optionalDependencies,
+			},
+			needsPin:
+				Date.now() - publishTime.getTime() < COOLDOWN_MS ? "unavailable" : false,
 		};
 	}
 
