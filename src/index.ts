@@ -283,6 +283,29 @@ export async function main(): Promise<void> {
 			}
 		}
 
+		// Transitive pins for packages that are also direct dependencies cannot use
+		// overrides — npm raises EOVERRIDE. Handle them the same way as rootDowngraded:
+		// temporarily set the exact pinned version in package.json, then restore after.
+		for (const [name, entries] of [...pins.entries()]) {
+			const directField = DEP_FIELDS.find(
+				(f) => pkgJson[f]?.[name] !== undefined,
+			);
+			if (directField !== undefined && !savedDepRanges.has(name)) {
+				const pinnedVersion = entries[0].version;
+				const originalRange =
+					originalRanges.get(name) ??
+					(pkgJson[directField] as Record<string, string>)[name];
+				savedDepRanges.set(name, {
+					field: directField,
+					range: originalRange,
+					permanent: !semver.satisfies(pinnedVersion, originalRange),
+				});
+				rootDowngraded.set(name, pinnedVersion);
+				(pkgJson[directField] as Record<string, string>)[name] = pinnedVersion;
+				pins.delete(name);
+			}
+		}
+
 		pkgJson.overrides = {
 			...savedOverrides,
 			...buildTransitiveOverrides(pins, conflictingDeps),
