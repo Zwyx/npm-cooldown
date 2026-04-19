@@ -248,7 +248,11 @@ export async function resolvePackageAtDate(
 	majorHint?: number,
 	rangeConstraint?: string,
 ): Promise<
-	PackageInfo & { needsPin: boolean | "unavailable"; latestVersion: string }
+	PackageInfo & {
+		needsPin: boolean | "unavailable";
+		latestVersion: string;
+		latestDeps: Record<string, string>;
+	}
 > {
 	const data = await fetchPackument(name);
 
@@ -270,6 +274,7 @@ export async function resolvePackageAtDate(
 				latestVersion: version,
 				publishTime,
 				deps,
+				latestDeps: deps,
 				needsPin:
 					Date.now() - publishTime.getTime() < COOLDOWN_MS
 						? "unavailable"
@@ -299,15 +304,17 @@ export async function resolvePackageAtDate(
 		const latestVersion = data["dist-tags"].latest;
 		const latestTime = data.time[latestVersion];
 		const publishTime = new Date(latestTime);
+		const deps = {
+			...data.versions[latestVersion]?.dependencies,
+			...data.versions[latestVersion]?.optionalDependencies,
+		};
 		return {
 			name,
 			version: latestVersion,
 			latestVersion,
 			publishTime,
-			deps: {
-				...data.versions[latestVersion]?.dependencies,
-				...data.versions[latestVersion]?.optionalDependencies,
-			},
+			deps,
+			latestDeps: deps,
 			needsPin:
 				Date.now() - publishTime.getTime() < COOLDOWN_MS ? "unavailable" : false,
 		};
@@ -316,15 +323,17 @@ export async function resolvePackageAtDate(
 	const [latestVersion, latestTime] = allStable[0];
 	if (Date.now() - new Date(latestTime).getTime() >= COOLDOWN_MS) {
 		// Current latest in this major is already old enough — no pin needed
+		const deps = {
+			...data.versions[latestVersion]?.dependencies,
+			...data.versions[latestVersion]?.optionalDependencies,
+		};
 		return {
 			name,
 			version: latestVersion,
 			latestVersion,
 			publishTime: new Date(latestTime),
-			deps: {
-				...data.versions[latestVersion]?.dependencies,
-				...data.versions[latestVersion]?.optionalDependencies,
-			},
+			deps,
+			latestDeps: deps,
 			needsPin: false,
 		};
 	}
@@ -339,11 +348,16 @@ export async function resolvePackageAtDate(
 			latestVersion,
 			publishTime: new Date(latestTime),
 			deps: {},
+			latestDeps: {},
 			needsPin: "unavailable",
 		};
 	}
 
 	const [version, time] = candidates[0];
+	const latestDeps = {
+		...data.versions[latestVersion]?.dependencies,
+		...data.versions[latestVersion]?.optionalDependencies,
+	};
 	return {
 		name,
 		version,
@@ -353,6 +367,7 @@ export async function resolvePackageAtDate(
 			...data.versions[version]?.dependencies,
 			...data.versions[version]?.optionalDependencies,
 		},
+		latestDeps,
 		needsPin: true,
 	};
 }
@@ -666,8 +681,15 @@ export async function checkAndCollect(
 			}
 
 			for (let i = 0; i < resolved.length; i++) {
-				const { name, version, latestVersion, deps, needsPin, publishTime } =
-					resolved[i];
+				const {
+					name,
+					version,
+					latestVersion,
+					deps,
+					latestDeps,
+					needsPin,
+					publishTime,
+				} = resolved[i];
 				const { parentChain } = batch[i];
 
 				if (needsPin === "unavailable") {
@@ -679,7 +701,7 @@ export async function checkAndCollect(
 					continue; // don't walk deps of a package we can't pin
 				}
 
-				if (needsPin) {
+				if (needsPin && !isException(name, exceptions)) {
 					let entries = pins.get(name);
 					if (entries === undefined) {
 						entries = [];
@@ -688,7 +710,11 @@ export async function checkAndCollect(
 					entries.push({ version, latestVersion, parentChain });
 				}
 
-				for (const [depName, depRange] of Object.entries(deps)) {
+				// Excepted packages aren't pinned, so npm will install their latest
+				// version — walk its deps, not the historical version's deps.
+				const depsToWalk =
+					needsPin && isException(name, exceptions) ? latestDeps : deps;
+				for (const [depName, depRange] of Object.entries(depsToWalk)) {
 					trackCompatGroup(depName, depRange);
 					const key = visitKey(depName, depRange);
 					if (!visited.has(key)) {
