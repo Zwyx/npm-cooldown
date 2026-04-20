@@ -37,23 +37,25 @@ const CI_SUBCOMMANDS = new Set([
 const args = process.argv.slice(2);
 const command = args[0] ?? "";
 
-if (INSTALL_SUBCOMMANDS.has(command) || CI_SUBCOMMANDS.has(command)) {
-	// Strip the `install` command and forward packages and flags
-	process.argv = [process.argv[0], process.argv[1], ...args.slice(1)];
-
-	if (CI_SUBCOMMANDS.has(command)) {
-		// Don't forward packages for ci command
-		process.argv = [
-			process.argv[0],
-			process.argv[1],
-			...args.slice(1).filter((a) => a.startsWith("-")),
-		];
-	}
-
+const catchMain = () =>
 	main().catch((err: unknown) => {
 		process.stderr.write(`\nError: ${(err as Error).message}\n`);
 		process.exit(1);
 	});
+
+if (INSTALL_SUBCOMMANDS.has(command)) {
+	process.env.NCD_SUBCOMMAND = "install";
+	process.argv = [process.argv[0], process.argv[1], ...args.slice(1)];
+	catchMain().catch(() => {});
+} else if (CI_SUBCOMMANDS.has(command)) {
+	process.env.NCD_SUBCOMMAND = "ci";
+	// `npm ci` never accepts package names — forward flags only.
+	process.argv = [
+		process.argv[0],
+		process.argv[1],
+		...args.slice(1).filter((a) => a.startsWith("-")),
+	];
+	catchMain().catch(() => {});
 } else {
 	// Pass everything else (run, test, publish, audit, …) straight to real npm.
 	const result = spawnSync("npm", args, { stdio: "inherit" });

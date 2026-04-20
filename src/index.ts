@@ -85,13 +85,23 @@ export async function main(): Promise<void> {
 	}
 
 	const args = process.argv.slice(2);
-	const flags = args.filter((a) => a.startsWith("-"));
+	const hasParanoidFlag = args.includes("--paranoid");
+	const flags = args.filter((a) => a.startsWith("-") && a !== "--paranoid");
 	const pkgSpecs = args.filter((a) => !a.startsWith("-"));
+	const isParanoid = hasParanoidFlag || config.mode === "paranoid";
 
-	// Lockfile path — verify every locked version against the cooldown, then run npm ci.
+	// Lockfile path — in paranoid mode: verify every locked version against the cooldown,
+	// then run npm ci. In normal mode: pass through directly to npm unchanged.
 	if (pkgSpecs.length === 0) {
 		const lockPath = path.resolve("package-lock.json");
 		if (fs.existsSync(lockPath)) {
+			if (!isParanoid) {
+				const subcommand = process.env.NCD_SUBCOMMAND ?? "ci";
+				const cmd = `npm ${subcommand} ${flags.join(" ")}`.trim();
+				process.stderr.write(`Running: ${cmd}\n`);
+				execSync(cmd, { stdio: "inherit" });
+				return;
+			}
 			process.stderr.write(
 				`Cooldown check (${String(COOLDOWN_DAYS)} days) for all packages in package-lock.json...\n`,
 			);
@@ -114,7 +124,7 @@ export async function main(): Promise<void> {
 
 	// In paranoid mode, when adding specific packages and a lockfile already exists,
 	// verify all existing packages pass cooldown before touching anything.
-	if (pkgSpecs.length > 0 && config.mode === "paranoid") {
+	if (pkgSpecs.length > 0 && isParanoid) {
 		const lockPath = path.resolve("package-lock.json");
 		if (fs.existsSync(lockPath)) {
 			process.stderr.write(
@@ -316,7 +326,7 @@ export async function main(): Promise<void> {
 		);
 
 		try {
-			if (config.mode !== "paranoid") {
+			if (!isParanoid) {
 				// Normal mode: run npm install directly with the pinned versions.
 				const installCmd =
 					pkgSpecs.length > 0 ?
