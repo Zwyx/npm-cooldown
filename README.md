@@ -96,17 +96,22 @@ npm install
 # or: npx npm-cooldown
 ```
 
-Resolves all dependencies in `package.json`, pins any that are too new, and runs `npm install`. Note: if a lockfile is present, `npm install` acts as `npm ci` (see below) – if the lockfile contains dependencies that don't pass the cooldown check, the tool will ask you to delete the lockfile and rerun `npm install`.
+Resolves all dependencies in `package.json`, pins any that are too new, and runs `npm install`.
 
-### CI/CD – verify and install from lockfile
+### `npm install` with a lockfile, and `npm ci`
+
+In [normal mode](#normal-vs-paranoid-mode) these pass straight through to real npm unchanged — the cooldown check already happened when the lockfile was created. In [paranoid mode](#normal-vs-paranoid-mode), every locked package is verified against the cooldown threshold before running.
+
+### Flags
+
+| Flag         | Description                                                                             |
+| ------------ | --------------------------------------------------------------------------------------- |
+| `--paranoid` | Activates [paranoid mode](#normal-vs-paranoid-mode) for this run, regardless of config. |
+| `--bypass`   | Skips npm-cooldown entirely and calls real npm directly.                                |
 
 ```sh
-npm ci
-# or: ncd
-# or: npx npm-cooldown
+npm --bypass install -g my-package.tgz     # skip cooldown, call npm directly
 ```
-
-When a `package-lock.json` is present, checks every locked package against the cooldown threshold and runs `npm ci` if all pass.
 
 ## How it works
 
@@ -122,9 +127,11 @@ When a `package-lock.json` is present, checks every locked package against the c
 
 Same steps as above but for all dependencies in `package.json` at once. When a dependency's range needs to be pinned to an older version, npm-cooldown temporarily sets it to the exact pinned version in `package.json` during the install (npm doesn't support `overrides` for direct dependencies), then restores the file – keeping the change permanent only if the pinned version falls outside the original range.
 
-### `npm ci` with a lockfile
+### `npm install` with a lockfile, and `npm ci`
 
-Checks every locked package against the cooldown threshold and runs `npm ci` if all pass.
+In normal mode, these are passed through to real npm unchanged.
+
+In paranoid mode, every locked package is checked against the cooldown threshold, and npm is only invoked if all pass.
 
 ## Configuration
 
@@ -146,15 +153,13 @@ Create a `.npm-cooldown_config` JSON file in your home directory (global) or pro
 
 ### Normal vs paranoid mode
 
-In **normal mode** (the default), npm-cooldown resolves the dependency tree, pins any too-new transitive deps via overrides, and runs `npm install` directly.
+In **normal mode** (the default), npm-cooldown resolves the dependency tree, pins any too-new transitive deps via overrides, and runs `npm install` directly. `npm install` with a lockfile and `npm ci` are passed through to real npm unchanged.
 
 This creates a small race window between the cooldown check and the actual install during which a new version could be published and picked up by npm.
 
-**Paranoid mode** closes this by running `npm install --package-lock-only` first to resolve the lockfile without downloading any dependencies, verifying the resulting lockfile, and only then running `npm ci` to install from the verified lockfile. If anything slipped in during npm's resolution (e.g. a package was published in that split-second window), npm-cooldown redoes the checks with the new information and retries.
+**Paranoid mode** closes this by running `npm install --package-lock-only` first to resolve the lockfile without downloading any dependencies, verifying the resulting lockfile, and only then running `npm ci` to install from the verified lockfile. If anything slipped in during npm's resolution (e.g. a package was published in that split-second window), npm-cooldown redoes the checks with the new information and retries. `npm install` with a lockfile and `npm ci` also verify every locked package before running.
 
-This also applies when running `npm install` with no arguments and no existing lockfile.
-
-`npm ci` always checks the lockfile and runs `npm ci`, regardless of mode.
+Paranoid mode can be set permanently in config, or activated for a single run with `--paranoid`.
 
 The project-level config is merged on top of the global one, so you can set a global default and tighten or loosen it per project.
 
