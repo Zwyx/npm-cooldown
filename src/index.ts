@@ -90,6 +90,14 @@ export async function main(): Promise<void> {
 	const pkgSpecs = args.filter((a) => !a.startsWith("-"));
 	const isParanoid = hasParanoidFlag || config.mode === "paranoid";
 
+	if (flags.includes("-g") || flags.includes("--global")) {
+		process.stderr.write(
+			"npm-cooldown does not support global installs (no package.json to apply overrides).\n" +
+				"Use --bypass to call npm directly: npm --bypass install -g <package>\n",
+		);
+		process.exit(1);
+	}
+
 	// Lockfile path — in paranoid mode: verify every locked version against the cooldown,
 	// then run npm ci. In normal mode: pass through directly to npm unchanged.
 	if (pkgSpecs.length === 0) {
