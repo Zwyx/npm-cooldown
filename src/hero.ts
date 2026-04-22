@@ -37,9 +37,13 @@ const CI_SUBCOMMANDS = new Set([
 const args = process.argv.slice(2);
 
 if (args.includes("--bypass")) {
-	const result = spawnSync("npm", args.filter((a) => a !== "--bypass"), {
-		stdio: "inherit",
-	});
+	const result = spawnSync(
+		"npm",
+		args.filter((a) => a !== "--bypass"),
+		{
+			stdio: "inherit",
+		},
+	);
 	process.exit(result.status ?? 1);
 }
 

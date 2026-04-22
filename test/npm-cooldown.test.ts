@@ -759,7 +759,10 @@ describe("main() — dep range handling for downgraded root packages in no-lock 
 		stubFetch({
 			"@types/node": {
 				"dist-tags": { latest: "22.20.0" },
-				versions: { "22.19.11": { dependencies: {} }, "22.20.0": { dependencies: {} } },
+				versions: {
+					"22.19.11": { dependencies: {} },
+					"22.20.0": { dependencies: {} },
+				},
 				time: {
 					created: new Date(
 						Date.now() - COOLDOWN_DAYS * 2 * 86_400_000,
@@ -773,7 +776,10 @@ describe("main() — dep range handling for downgraded root packages in no-lock 
 			},
 			eslint: {
 				"dist-tags": { latest: "10.2.0" },
-				versions: { "10.0.0": { dependencies: {} }, "10.2.0": { dependencies: {} } },
+				versions: {
+					"10.0.0": { dependencies: {} },
+					"10.2.0": { dependencies: {} },
+				},
 				time: {
 					created: new Date(
 						Date.now() - COOLDOWN_DAYS * 2 * 86_400_000,
@@ -787,7 +793,10 @@ describe("main() — dep range handling for downgraded root packages in no-lock 
 			},
 			"typescript-eslint": {
 				"dist-tags": { latest: "8.60.0" },
-				versions: { "8.56.0": { dependencies: {} }, "8.60.0": { dependencies: {} } },
+				versions: {
+					"8.56.0": { dependencies: {} },
+					"8.60.0": { dependencies: {} },
+				},
 				time: {
 					created: new Date(
 						Date.now() - COOLDOWN_DAYS * 2 * 86_400_000,

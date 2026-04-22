@@ -14,6 +14,7 @@ import {
 	config,
 	COOLDOWN_DAYS,
 	COOLDOWN_MS,
+	extractPackagesFromLock,
 	parsePackageSpec,
 } from "./check.js";
 
@@ -38,9 +39,8 @@ function printBlocked(
 ): void {
 	process.stderr.write("\nBlocked — packages still in cooldown:\n");
 	for (const { name, version, daysOld } of tooNew) {
-		const remaining = (COOLDOWN_DAYS - daysOld).toFixed(1);
 		process.stderr.write(
-			`  ${name}@${version}  (${daysOld.toFixed(1)}d old, ${remaining}d remaining)\n`,
+			`  ${name}@${version}  (${daysOld.toFixed(1)}d old)\n`,
 		);
 	}
 	if (showLockfileHint) {
@@ -56,9 +56,15 @@ function printPins(pins: Map<string, PinEntry[]>): void {
 		`\nPinning ${String(pins.size)} transitive deps to versions available as of ${snapshotDate.toISOString().slice(0, 10)}:\n`,
 	);
 	for (const [name, entries] of pins) {
-		for (const { version, latestVersion, parentChain } of entries) {
+		for (const {
+			version,
+			latestVersion,
+			latestPublishTime,
+			parentChain,
+		} of entries) {
+			const ageMs = Date.now() - latestPublishTime.getTime();
 			process.stderr.write(
-				`  ${name}@${latestVersion} -> ${version} (required by ${parentChain.join(" -> ")})\n`,
+				`  ${name}@${latestVersion} (${(ageMs / 86400000).toFixed(1)}d old) -> ${version} – required by ${parentChain.join(" -> ")}\n`,
 			);
 		}
 	}
@@ -73,7 +79,9 @@ export async function main(): Promise<void> {
 		process.exit(1);
 	}
 
-	const npmVersionResult = spawnSync("npm", ["--version"], { encoding: "utf8" });
+	const npmVersionResult = spawnSync("npm", ["--version"], {
+		encoding: "utf8",
+	});
 	if (
 		npmVersionResult.status !== 0 ||
 		semver.lt(npmVersionResult.stdout.trim(), "8.3.0")
@@ -161,6 +169,25 @@ export async function main(): Promise<void> {
 	const indent =
 		originalContents !== undefined ? detectIndent(originalContents) : 2;
 
+	// Build a map of already-locked versions so we can skip transitive deps that npm
+	// itself wouldn't touch (they already satisfy their range constraint in the lockfile).
+	const preLockPath = path.resolve("package-lock.json");
+	let lockedVersions: Map<string, string[]> | undefined;
+	if (fs.existsSync(preLockPath)) {
+		const preLock = JSON.parse(
+			fs.readFileSync(preLockPath, "utf8"),
+		) as PackageLock;
+		lockedVersions = new Map<string, string[]>();
+		for (const { name, version } of extractPackagesFromLock(preLock)) {
+			let versions = lockedVersions.get(name);
+			if (versions === undefined) {
+				versions = [];
+				lockedVersions.set(name, versions);
+			}
+			versions.push(version);
+		}
+	}
+
 	// Outer retry loop (paranoid mode only): if a package is published during npm's
 	// resolution it could sneak into the lockfile. We detect this by running
 	// `--package-lock-only` first, verifying the resulting lockfile, and only
@@ -205,7 +232,7 @@ export async function main(): Promise<void> {
 		}
 
 		let { tooNew, pins, conflictingDeps, rootPinned, rootDowngraded } =
-			await checkAndCollect(specs);
+			await checkAndCollect(specs, lockedVersions);
 
 		while (tooNew.length > 0) {
 			// Packages are auto-downgradeable if they are a root/direct dep and have a
@@ -257,7 +284,7 @@ export async function main(): Promise<void> {
 			}
 
 			({ tooNew, pins, conflictingDeps, rootPinned, rootDowngraded } =
-				await checkAndCollect(specs));
+				await checkAndCollect(specs, lockedVersions));
 		}
 
 		process.stderr.write("\nAll packages passed the cooldown check.\n");

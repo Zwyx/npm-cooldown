@@ -251,6 +251,7 @@ export async function resolvePackageAtDate(
 	PackageInfo & {
 		needsPin: boolean | "unavailable";
 		latestVersion: string;
+		latestPublishTime: Date;
 		latestDeps: Record<string, string>;
 	}
 > {
@@ -273,12 +274,13 @@ export async function resolvePackageAtDate(
 				version,
 				latestVersion: version,
 				publishTime,
+				latestPublishTime: publishTime,
 				deps,
 				latestDeps: deps,
 				needsPin:
-					Date.now() - publishTime.getTime() < COOLDOWN_MS
-						? "unavailable"
-						: false,
+					Date.now() - publishTime.getTime() < COOLDOWN_MS ?
+						"unavailable"
+					:	false,
 			};
 		}
 	}
@@ -313,10 +315,13 @@ export async function resolvePackageAtDate(
 			version: latestVersion,
 			latestVersion,
 			publishTime,
+			latestPublishTime: publishTime,
 			deps,
 			latestDeps: deps,
 			needsPin:
-				Date.now() - publishTime.getTime() < COOLDOWN_MS ? "unavailable" : false,
+				Date.now() - publishTime.getTime() < COOLDOWN_MS ?
+					"unavailable"
+				:	false,
 		};
 	}
 
@@ -332,6 +337,7 @@ export async function resolvePackageAtDate(
 			version: latestVersion,
 			latestVersion,
 			publishTime: new Date(latestTime),
+			latestPublishTime: new Date(latestTime),
 			deps,
 			latestDeps: deps,
 			needsPin: false,
@@ -347,6 +353,7 @@ export async function resolvePackageAtDate(
 			version: latestVersion,
 			latestVersion,
 			publishTime: new Date(latestTime),
+			latestPublishTime: new Date(latestTime),
 			deps: {},
 			latestDeps: {},
 			needsPin: "unavailable",
@@ -363,6 +370,7 @@ export async function resolvePackageAtDate(
 		version,
 		latestVersion,
 		publishTime: new Date(time),
+		latestPublishTime: new Date(latestTime),
 		deps: {
 			...data.versions[version]?.dependencies,
 			...data.versions[version]?.optionalDependencies,
@@ -527,6 +535,7 @@ export async function checkPackageLock(
 
 export async function checkAndCollect(
 	rootSpecs: Array<{ name: string; versionHint: string }>,
+	lockedVersions?: Map<string, string[]>,
 ) {
 	const tooNew: TooNewEntry[] = [];
 	// pins tracks transitive deps that need pinning, grouped by dep name.
@@ -596,9 +605,8 @@ export async function checkAndCollect(
 					daysOld: ageMs / 86400000,
 				});
 			} else {
-				const remaining = (COOLDOWN_DAYS - ageMs / 86400000).toFixed(1);
 				process.stderr.write(
-					`  ${pkg.name}@${pkg.version} is too new (${(ageMs / 86400000).toFixed(1)}d old, ${remaining}d remaining) — using ${historical.version} instead\n`,
+					`  ${pkg.name}@${pkg.version} is only ${(ageMs / 86400000).toFixed(1)}d old — using ${historical.version} instead\n`,
 				);
 				roots.push({
 					name: pkg.name,
@@ -646,10 +654,20 @@ export async function checkAndCollect(
 					break;
 				}
 				const key = visitKey(dep.name, dep.range);
-				if (!visited.has(key)) {
-					visited.add(key);
-					batch.push(dep);
+				if (visited.has(key)) {
+					continue;
 				}
+				visited.add(key);
+				// Skip if already locked at a satisfying version: npm itself wouldn't
+				// touch this dep, so we trust the lockfile and skip the cooldown check.
+				const locked = lockedVersions?.get(dep.name);
+				if (
+					locked !== undefined &&
+					locked.some((v) => semver.satisfies(v, dep.range))
+				) {
+					continue;
+				}
+				batch.push(dep);
 			}
 			if (batch.length === 0) {
 				continue;
@@ -685,6 +703,7 @@ export async function checkAndCollect(
 					name,
 					version,
 					latestVersion,
+					latestPublishTime,
 					deps,
 					latestDeps,
 					needsPin,
@@ -707,7 +726,12 @@ export async function checkAndCollect(
 						entries = [];
 						pins.set(name, entries);
 					}
-					entries.push({ version, latestVersion, parentChain });
+					entries.push({
+						version,
+						latestVersion,
+						latestPublishTime,
+						parentChain,
+					});
 				}
 
 				// Excepted packages aren't pinned, so npm will install their latest

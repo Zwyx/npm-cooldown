@@ -60,6 +60,7 @@ export interface MinimalPackageJson {
 export interface PinEntry {
 	version: string;
 	latestVersion: string; // latest (too-new) version that would be installed without pinning
+	latestPublishTime: Date; // publish time of the latest (too-new) version
 	parentChain: string[]; // ancestry from root dep to direct requiring package
 }
 
